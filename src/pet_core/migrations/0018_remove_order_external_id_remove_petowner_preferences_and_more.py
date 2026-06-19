@@ -14,10 +14,6 @@ def _drop_column_if_exists(apps, schema_editor, table_name: str, column_name: st
     except Exception:
         return
 
-    if schema_editor.connection.vendor == 'sqlite':
-        schema_editor.remove_field(model, field)
-        return
-
     with schema_editor.connection.cursor() as cursor:
         cols = schema_editor.connection.introspection.get_table_description(cursor, table_name)
     col_names = {c.name for c in cols}
@@ -37,10 +33,7 @@ def _rename_m2m_table(schema_editor, old_name: str, new_name: str):
     existing = set(schema_editor.connection.introspection.table_names())
     if old_name in existing and new_name not in existing:
         qn = schema_editor.quote_name
-        if schema_editor.connection.vendor == 'mysql':
-            schema_editor.execute(f'RENAME TABLE {qn(old_name)} TO {qn(new_name)};')
-        else:
-            schema_editor.execute(f'ALTER TABLE {qn(old_name)} RENAME TO {qn(new_name)};')
+        schema_editor.execute(f'RENAME TABLE {qn(old_name)} TO {qn(new_name)};')
 
 
 def forwards_rename_user_m2m_tables(apps, schema_editor):

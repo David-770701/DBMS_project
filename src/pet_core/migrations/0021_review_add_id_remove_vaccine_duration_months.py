@@ -87,32 +87,6 @@ def forwards_review_pk_to_id(apps, schema_editor):
                 )
         return
 
-    if vendor == 'sqlite':
-        with schema_editor.connection.cursor() as cursor:
-            cursor.execute('PRAGMA foreign_keys=OFF;')
-            cursor.execute(f'ALTER TABLE {qn(table)} RENAME TO {qn(table + "_old")};')
-            cursor.execute(
-                f"""
-                CREATE TABLE {qn(table)} (
-                    id integer NOT NULL PRIMARY KEY AUTOINCREMENT,
-                    order_id bigint NOT NULL UNIQUE
-                        REFERENCES pet_core_order (id) DEFERRABLE INITIALLY DEFERRED,
-                    rating integer NOT NULL,
-                    comment text NOT NULL,
-                    created_at datetime NOT NULL
-                );
-                """
-            )
-            cursor.execute(
-                f"""
-                INSERT INTO {qn(table)} (order_id, rating, comment, created_at)
-                SELECT order_id, rating, comment, created_at FROM {qn(table + "_old")};
-                """
-            )
-            cursor.execute(f'DROP TABLE {qn(table + "_old")};')
-            cursor.execute('PRAGMA foreign_keys=ON;')
-        return
-
     raise RuntimeError(f'Unsupported DB vendor for review PK migration: {vendor}')
 
 

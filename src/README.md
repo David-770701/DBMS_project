@@ -24,7 +24,7 @@ python src/manage.py migrate
 python src/manage.py runserver
 ```
 
-The project does not require a generated SQLite database file. By default it connects to MySQL database `pet_service_db`.
+The project connects to the local MySQL database `pet_service_db`.
 
 ## Default MySQL Connection
 

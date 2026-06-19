@@ -15,7 +15,7 @@ A Django + MySQL pet service platform built from a database course project and p
 ## Tech Stack
 
 - Backend: Django 4.2
-- Database: MySQL by default, SQLite available for lightweight local checks
+- Database: MySQL
 - Frontend: Django templates + Bootstrap 5
 
 ## Project Structure
@@ -57,20 +57,6 @@ Start the development server:
 
 ```bash
 python src/manage.py runserver
-```
-
-For a quick SQLite check without MySQL:
-
-```bash
-set DJANGO_DB_ENGINE=sqlite
-python src/manage.py migrate
-python src/manage.py check
-```
-
-PowerShell users can set the same variable with:
-
-```powershell
-$env:DJANGO_DB_ENGINE="sqlite"
 ```
 
 Run the test suite:
