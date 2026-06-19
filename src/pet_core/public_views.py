@@ -1,25 +1,20 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
-from django.urls import reverse
-from django.db.models import Q, Avg, Exists, OuterRef, Count
-from django.db import transaction
+from django.db.models import Q
 import json
-from datetime import timedelta
-from django.core.paginator import Paginator
 from django.utils.dateparse import parse_datetime
 
-from .models import User, PetOwner, Merchant, Pet, Service, ServiceCategory, Order, Review, VaccineRecord, FavoriteStore, Vaccine, VaccineOrderDetail
-from .vaccine_logic import (
-    build_due_vaccine_reminders,
-    calculate_next_due_date,
-    get_pet_vaccine_queryset,
-    normalize_species_name,
-)
-from .view_helpers import *
 from .decorators import role_required
+from .models import Merchant, Order, Pet, PetOwner, Review, Service, ServiceCategory, Vaccine, VaccineOrderDetail
+from .vaccine_logic import normalize_species_name
+from .view_helpers import (
+    MUNICIPALITIES,
+    paginate,
+    pagination_query,
+    _is_medical_service,
+    _parse_operating_hours,
+)
 
 def merchant_list(request):
     query = (request.GET.get('q') or '').strip()
@@ -61,8 +56,7 @@ def merchant_list(request):
         pinned_merchant_ids = [m.user_id for m in pinned_merchants]
 
     merchants = merchants.order_by('-average_rating', 'user_id')
-    paginator = Paginator(merchants, 12)
-    page_obj = paginator.get_page(request.GET.get('page'))
+    page_obj = paginate(request, merchants, 12)
 
     return render(
         request,
@@ -77,6 +71,7 @@ def merchant_list(request):
             'province': province,
             'city': city,
             'enforce_location': apply_location_filter,
+            'pagination_query': pagination_query(request),
         },
     )
 
@@ -103,8 +98,7 @@ def merchant_detail(request, merchant_id):
     services = merchant.services.filter(is_active=True, approval_status='approved', is_admin_disabled=False).all()
     # Get reviews through the orders that belong to this merchant's services
     reviews_qs = Review.objects.filter(order__service__merchant=merchant).select_related('order__owner__user', 'order__service').order_by('-created_at')
-    reviews_paginator = Paginator(reviews_qs, 10)
-    reviews_page = reviews_paginator.get_page(request.GET.get('page'))
+    reviews_page = paginate(request, reviews_qs, 10)
     
     is_favorited = False
     if request.user.is_authenticated and request.user.role == 'owner':
@@ -115,6 +109,7 @@ def merchant_detail(request, merchant_id):
         'services': services,
         'reviews_page': reviews_page,
         'is_favorited': is_favorited,
+        'pagination_query': pagination_query(request),
     }
     return render(request, 'pet_core/merchant_detail.html', context)
 
@@ -168,8 +163,7 @@ def service_list(request):
         pinned_service_ids = [s.id for s in pinned_services]
 
     services = services.order_by('-id')
-    paginator = Paginator(services, 12)
-    page_obj = paginator.get_page(request.GET.get('page'))
+    page_obj = paginate(request, services, 12)
 
     return render(
         request,
@@ -184,6 +178,7 @@ def service_list(request):
             'province': province,
             'city': city,
             'enforce_location': bool(province or city),
+            'pagination_query': pagination_query(request),
         },
     )
 

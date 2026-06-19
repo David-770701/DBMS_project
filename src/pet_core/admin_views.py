@@ -1,25 +1,15 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.utils import timezone
-from django.urls import reverse
-from django.db.models import Q, Avg, Exists, OuterRef, Count
-from django.db import transaction
-import json
-from datetime import timedelta
-from django.core.paginator import Paginator
-from django.utils.dateparse import parse_datetime
+from django.db.models import Count, Exists, OuterRef
 
-from .models import User, PetOwner, Merchant, Pet, Service, ServiceCategory, Order, Review, VaccineRecord, FavoriteStore, Vaccine, VaccineOrderDetail
-from .vaccine_logic import (
-    build_due_vaccine_reminders,
-    calculate_next_due_date,
-    get_pet_vaccine_queryset,
-    normalize_species_name,
-)
-from .view_helpers import *
 from .decorators import role_required
+from .models import Merchant, Order, Review, Service, User
+from .view_helpers import (
+    confirmed_post,
+    paginate,
+    pagination_query,
+    _merchant_is_pending_for_review,
+)
 
 @role_required('admin')
 def admin_dashboard(request):
@@ -57,7 +47,7 @@ def admin_approve_merchant(request, merchant_id):
 
     merchant = get_object_or_404(Merchant, user_id=merchant_id)
     if request.method == 'POST':
-        if request.POST.get('confirmed') != '1':
+        if not confirmed_post(request):
             messages.info(request, 'Operation cancelled.')
             return redirect('admin_merchant_list')
         if not _merchant_is_pending_for_review(merchant):
@@ -75,7 +65,7 @@ def admin_reject_merchant(request, merchant_id):
 
     merchant = get_object_or_404(Merchant, user_id=merchant_id)
     if request.method == 'POST':
-        if request.POST.get('confirmed') != '1':
+        if not confirmed_post(request):
             messages.info(request, 'Operation cancelled.')
             return redirect('admin_merchant_list')
         if not _merchant_is_pending_for_review(merchant):
@@ -96,9 +86,12 @@ def admin_user_list(request):
     elif status == 'disabled':
         users = users.filter(is_active=False)
 
-    paginator = Paginator(users, 50)
-    page_obj = paginator.get_page(request.GET.get('page'))
-    return render(request, 'pet_core/admin_users.html', {'page_obj': page_obj, 'status': status})
+    page_obj = paginate(request, users, 50)
+    return render(
+        request,
+        'pet_core/admin_users.html',
+        {'page_obj': page_obj, 'status': status, 'pagination_query': pagination_query(request)},
+    )
 
 @role_required('admin')
 def admin_toggle_user_active(request, user_id):
@@ -113,7 +106,7 @@ def admin_toggle_user_active(request, user_id):
         return redirect('admin_user_list')
 
     if request.method == 'POST':
-        if request.POST.get('confirmed') != '1':
+        if not confirmed_post(request):
             messages.info(request, 'Operation cancelled.')
             return redirect('admin_user_list')
         target.is_active = not target.is_active
@@ -140,8 +133,7 @@ def admin_merchant_list(request):
         merchants = merchants.filter(has_pending_services=(pending == 'has'))
 
     merchants = merchants.order_by('-average_rating', 'user_id')
-    paginator = Paginator(merchants, 30)
-    page_obj = paginator.get_page(request.GET.get('page'))
+    page_obj = paginate(request, merchants, 30)
     return render(
         request,
         'pet_core/admin_merchants.html',
@@ -149,6 +141,7 @@ def admin_merchant_list(request):
             'page_obj': page_obj,
             'filter_status': status,
             'filter_pending_services': pending,
+            'pagination_query': pagination_query(request),
         },
     )
 
@@ -175,7 +168,7 @@ def admin_delete_merchant(request, merchant_id):
 
     merchant = get_object_or_404(Merchant, user_id=merchant_id)
     if request.method == 'POST':
-        if request.POST.get('confirmed') != '1':
+        if not confirmed_post(request):
             messages.info(request, 'Operation cancelled.')
             return redirect('admin_merchant_list')
         merchant.user.is_active = not merchant.user.is_active
@@ -195,7 +188,7 @@ def admin_delete_service(request, service_id):
         messages.error(request, 'Cannot disable service. There are unfinished orders linked to it.')
         return redirect('admin_merchant_list')
 
-    if request.POST.get('confirmed') != '1':
+    if not confirmed_post(request):
         messages.info(request, 'Operation cancelled.')
         return redirect('admin_merchant_list')
 
@@ -213,7 +206,7 @@ def admin_approve_service(request, service_id):
     if request.method != 'POST':
         return redirect('admin_merchant_list')
     service = get_object_or_404(Service, id=service_id)
-    if request.POST.get('confirmed') != '1':
+    if not confirmed_post(request):
         messages.info(request, 'Operation cancelled.')
         return redirect('admin_merchant_list')
     service.approval_status = 'approved'
@@ -242,16 +235,19 @@ def admin_review_list(request):
             reviews = reviews.filter(order__owner__user__username=username)
 
     reviews = reviews.order_by('-created_at')
-    paginator = Paginator(reviews, 50)
-    page_obj = paginator.get_page(request.GET.get('page'))
-    return render(request, 'pet_core/admin_reviews.html', {'page_obj': page_obj, 'username': username})
+    page_obj = paginate(request, reviews, 50)
+    return render(
+        request,
+        'pet_core/admin_reviews.html',
+        {'page_obj': page_obj, 'username': username, 'pagination_query': pagination_query(request)},
+    )
 
 @role_required('admin')
 def admin_delete_review(request, order_id):
 
     review = get_object_or_404(Review, order_id=order_id)
     if request.method == 'POST':
-        if request.POST.get('confirmed') != '1':
+        if not confirmed_post(request):
             messages.info(request, 'Operation cancelled.')
             return redirect('admin_review_list')
         review.delete()

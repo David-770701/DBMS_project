@@ -1,26 +1,27 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.utils import timezone
-from django.urls import reverse
-from django.db.models import Q, Avg, Exists, OuterRef, Count
 from django.db import transaction
-import json
-from datetime import timedelta
-from django.core.paginator import Paginator
-from django.utils.dateparse import parse_datetime
 
-from .models import User, PetOwner, Merchant, Pet, Service, ServiceCategory, Order, Review, VaccineRecord, FavoriteStore, Vaccine, VaccineOrderDetail
-from .vaccine_logic import (
-    build_due_vaccine_reminders,
-    calculate_next_due_date,
-    get_pet_vaccine_queryset,
-    normalize_species_name,
-)
-from .view_helpers import *
 from .decorators import role_required
 from .forms import MerchantStoreForm, ServiceForm
+from .models import Order, Review, Service, ServiceCategory, VaccineRecord
+from .vaccine_logic import calculate_next_due_date
+from .view_helpers import confirmed_post, flash_form_errors, _is_medical_category
+
+
+def _save_merchant_service(form, merchant):
+    category = form.cleaned_data['category']
+    if not merchant.primary_category_id:
+        merchant.primary_category = category
+        merchant.save(update_fields=['primary_category'])
+
+    service = form.save(commit=False)
+    service.merchant = merchant
+    service.category = category
+    service.approval_status = 'pending'
+    service.is_admin_disabled = False
+    service.save()
+    return service
 
 @role_required('merchant')
 def merchant_dashboard(request):
@@ -87,17 +88,7 @@ def add_service(request):
             flash_form_errors(request, messages, form)
             return redirect('add_service')
 
-        category = form.cleaned_data['category']
-        if not merchant.primary_category_id:
-            merchant.primary_category = category
-            merchant.save(update_fields=['primary_category'])
-
-        service = form.save(commit=False)
-        service.merchant = merchant
-        service.category = category
-        service.approval_status = 'pending'
-        service.is_admin_disabled = False
-        service.save()
+        _save_merchant_service(form, merchant)
         messages.success(request, 'New service added successfully.')
         return redirect('merchant_dashboard')
         
@@ -122,24 +113,7 @@ def edit_service(request, service_id):
             flash_form_errors(request, messages, form)
             return redirect('edit_service', service_id=service.id)
 
-        category = form.cleaned_data['category']
-        if not merchant.primary_category_id:
-            merchant.primary_category = category
-            merchant.save(update_fields=['primary_category'])
-
-        service = form.save(commit=False)
-        service.category = category
-        service.approval_status = 'pending'
-        service.is_admin_disabled = False
-        service.save(update_fields=[
-            'name',
-            'category',
-            'description',
-            'price',
-            'approval_status',
-            'is_admin_disabled',
-            'is_vaccine_service',
-        ])
+        _save_merchant_service(form, merchant)
         messages.success(request, 'Service updated and pending admin approval.')
         return redirect('merchant_dashboard')
         
@@ -163,7 +137,7 @@ def delete_service(request, service_id):
     if request.method != 'POST':
         return redirect('merchant_dashboard')
 
-    if request.POST.get('confirmed') != '1':
+    if not confirmed_post(request):
         messages.info(request, 'Deletion aborted.')
         return redirect('merchant_dashboard')
 

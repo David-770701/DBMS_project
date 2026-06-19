@@ -1,33 +1,25 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth import authenticate, login, logout
-from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
 from django.urls import reverse
-from django.db.models import Q, Avg, Exists, OuterRef, Count
-from django.db import transaction
-import json
-from datetime import timedelta
-from django.core.paginator import Paginator
-from django.utils.dateparse import parse_datetime
 
-from .models import User, PetOwner, Merchant, Pet, Service, ServiceCategory, Order, Review, VaccineRecord, FavoriteStore, Vaccine, VaccineOrderDetail
+from .decorators import role_required
+from .forms import OwnerProfileForm, PetEditForm, PetForm, ReviewForm
+from .models import FavoriteStore, Merchant, Order, Pet, Review, Vaccine, VaccineRecord
 from .vaccine_logic import (
     build_due_vaccine_reminders,
     calculate_next_due_date,
     get_pet_vaccine_queryset,
     normalize_species_name,
 )
-from .view_helpers import *
-from .decorators import role_required
-from .forms import OwnerProfileForm, PetEditForm, PetForm, ReviewForm
+from .view_helpers import confirmed_post, flash_form_errors, _safe_next_url
 
 @role_required('owner')
 def cancel_order(request, order_id):
     if request.method != 'POST':
         return redirect('owner_dashboard')
 
-    if request.POST.get('confirmed') != '1':
+    if not confirmed_post(request):
         messages.info(request, 'Cancellation aborted.')
         return redirect('owner_dashboard')
 
@@ -46,10 +38,6 @@ def owner_dashboard(request):
     
     owner = request.user.pet_owner_profile
     pets = owner.pets.all()
-    pet_species_map_json = json.dumps(
-        {str(p.id): normalize_species_name(p.species) for p in pets},
-        ensure_ascii=False,
-    )
     orders = owner.orders.select_related('service__merchant__user', 'pet').order_by('-appointment_time')
 
     reviewed_order_ids = set(Review.objects.filter(order__in=orders).values_list('order_id', flat=True))
@@ -112,7 +100,7 @@ def delete_pet(request, pet_id):
     if request.method != 'POST':
         return redirect('owner_dashboard')
 
-    if request.POST.get('confirmed') != '1':
+    if not confirmed_post(request):
         messages.info(request, 'Deletion aborted.')
         return redirect('owner_dashboard')
 
@@ -177,7 +165,7 @@ def toggle_favorite(request, merchant_id):
     merchant = get_object_or_404(Merchant, user_id=merchant_id)
     owner = request.user.pet_owner_profile
     
-    if request.POST.get('confirmed') != '1':
+    if not confirmed_post(request):
         messages.info(request, 'Operation cancelled.')
         return redirect(next_url)
 
