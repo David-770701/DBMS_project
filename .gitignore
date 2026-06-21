@@ -19,6 +19,9 @@ db.sqlite3
 media/
 staticfiles/
 .env
+*.log
+*.err
+*.pid
 
 # IDE and OS files
 .idea/
@@ -27,5 +30,9 @@ staticfiles/
 Thumbs.db
 
 # Data collection, preprocessing, and local datasets
-Data scraping/
-final_data/
+data/final_data/
+pet_services_complete_data/
+amap_crawler_complete.log
+
+# Temporary local references
+.codex_reference_*/
